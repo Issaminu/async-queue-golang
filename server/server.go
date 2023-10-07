@@ -80,9 +80,14 @@ func doWork(job *Job) {
 	// Check if the name is not empty.
 	if name != "" {
 		// Real work is done here.
-
+		flusher := job.w.(http.Flusher)
 		// Send the name as the response.
-		job.w.Write([]byte("Hello, " + name))
+		flusher.Flush()
+		_, err := job.w.Write([]byte("Hello, " + name))
+		flusher.Flush()
+		if err != nil {
+			log.Println("Error writing response:", err)
+		}
 		log.Println("Response sent: Hello,", name)
 	} else {
 		// If the "Name" parameter is missing or empty, send an error response.
@@ -94,5 +99,8 @@ func doWork(job *Job) {
 func main() {
 	http.HandleFunc("/addJob", handler)
 	log.Println("Server started and listening on :8080")
-	http.ListenAndServe(":8080", nil)
+	err := http.ListenAndServe(":8080", nil)
+	if err != nil {
+		log.Fatal("Error starting server:", err)
+	}
 }
