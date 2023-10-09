@@ -8,8 +8,9 @@ import (
 
 // Job represents a unit of work to be processed by a worker.
 type Job struct {
-	r *http.Request       // HTTP request to be processed
-	w http.ResponseWriter // Response writer to send the result
+	r    *http.Request       // HTTP request to be processed
+	w    http.ResponseWriter // Response writer to send the result
+	done chan struct{}       // Closed when write competed
 }
 
 // Queue manages a list of jobs to be processed by workers.
@@ -20,6 +21,7 @@ type Queue struct {
 }
 
 var q Queue // Global instance of the queue
+const WORKER_POOL_SIZE = 4
 
 // Push adds a job to the queue.
 func (q *Queue) Push(j *Job) {
@@ -46,17 +48,17 @@ func (q *Queue) Pop() (*Job, bool) {
 // handler adds a job to the queue.
 func handler(w http.ResponseWriter, r *http.Request) {
 	// Create a job with the request and response.
-	job := &Job{r, w}
-
+	job := &Job{r, w, make(chan struct{})}
 	// Push the job onto the queue.
 	q.Push(job)
 	log.Println("Received request and added job to queue")
+	<-job.done // Wait until job has been processed
 }
 
 // init initializes the condition variable and starts worker goroutines.
 func init() {
 	q.cond = sync.NewCond(&q.mu)
-	for i := 0; i < 4; i++ {
+	for i := 0; i < WORKER_POOL_SIZE; i++ {
 		go worker()
 	}
 }
@@ -68,6 +70,7 @@ func worker() {
 		if ok {
 			log.Println("Worker processing job")
 			doWork(job)
+			close(job.done) // Signal that the job has been processed
 		}
 	}
 }
@@ -79,12 +82,8 @@ func doWork(job *Job) {
 
 	// Check if the name is not empty.
 	if name != "" {
-		// Real work is done here.
-		flusher := job.w.(http.Flusher)
 		// Send the name as the response.
-		flusher.Flush()
 		_, err := job.w.Write([]byte("Hello, " + name))
-		flusher.Flush()
 		if err != nil {
 			log.Println("Error writing response:", err)
 		}
